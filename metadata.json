@@ -1,0 +1,6 @@
+{
+  "name": "SMARTFUN 360 — Teach Smart. Learn with Fun.",
+  "description": "AI-powered interactive EdTech platform built for UN SDG 4 (Quality Education) at IDEALAB Innovation Hub, featuring Gemini lesson design, live QuizBuzz multiplayer, STEM mini-games, Smartboard mode, and Arduino Uno hardware integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
