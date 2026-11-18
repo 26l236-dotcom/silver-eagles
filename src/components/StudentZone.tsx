@@ -14,6 +14,8 @@ import {
   Timer,
   Trash2,
   Trophy,
+  Volume2,
+  VolumeX,
   Zap,
 } from 'lucide-react';
 import {
@@ -110,6 +112,13 @@ export function StudentZone({ user }: StudentZoneProps) {
   });
 
   const [activeGame, setActiveGame] = useState<MiniGameId>('battle');
+  const [muted, setMuted] = useState(() => soundEngine.muted);
+
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    soundEngine.setMuted(next);
+  };
 
   const awardXP = (amount: number, won: boolean, badgeName?: string) => {
     setProgress((prev) => {
@@ -130,7 +139,12 @@ export function StudentZone({ user }: StudentZoneProps) {
 
     if (won) {
       soundEngine.playVictory();
+      if (amount > 0) {
+        setTimeout(() => soundEngine.playXpGain(), 260);
+      }
       void confetti({ particleCount: 70, spread: 60, origin: { y: 0.65 } });
+    } else if (amount > 0) {
+      soundEngine.playXpGain();
     }
   };
 
@@ -207,9 +221,25 @@ export function StudentZone({ user }: StudentZoneProps) {
       {/* Mini-Game Selector + Interactive Arena */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <aside className="lg:col-span-4 space-y-2.5">
-          <div className="flex items-center gap-2 px-1">
-            <Gamepad2 className="w-5 h-5" style={{ color: 'var(--accent-primary)' }} />
-            <h2 className="font-display text-lg font-bold">5 Interactive Mini-Games</h2>
+          <div className="flex items-center justify-between gap-2 px-1">
+            <div className="flex items-center gap-2">
+              <Gamepad2 className="w-5 h-5" style={{ color: 'var(--accent-primary)' }} />
+              <h2 className="font-display text-lg font-bold">5 Interactive Mini-Games</h2>
+            </div>
+            <button
+              type="button"
+              onClick={toggleMute}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                border: '1px solid var(--border-hairline)',
+                color: 'var(--text-secondary)',
+              }}
+              aria-label={muted ? 'Unmute sound effects' : 'Mute sound effects'}
+            >
+              {muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+              <span>{muted ? 'Muted' : 'SFX On'}</span>
+            </button>
           </div>
 
           {GAME_CATALOG.map((g) => {

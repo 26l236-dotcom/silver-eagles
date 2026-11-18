@@ -64,14 +64,6 @@ export const TEACHING_STYLES = [
   },
 ];
 
-export const SAMPLE_TOPICS = [
-  'Photosynthesis & Cellular Energy',
-  "Newton's Laws of Motion",
-  'Renewable Energy & Microgrids',
-  'Acid-Base Chemistry in Daily Life',
-  'Algorithmic Thinking & Sorting',
-];
-
 export const MANDATORY_QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: 'q-mandatory-1',
@@ -266,81 +258,57 @@ export const TEACHMATE_TOOLS: TeachMateTool[] = [
     id: 'lesson-architect',
     title: 'Lesson Architect',
     subtitle: '45-minute structured flow with hooks & timings',
-    placeholder: 'e.g., Design a 45-min inquiry lesson on Electromagnetic Induction for Grade 10',
-    suggestedPrompts: [
-      'Design a 45-minute inquiry lesson on Electromagnetic Induction for Grade 10',
-      'Create a hands-on lab flow for Mitosis vs Meiosis with zero lab glassware',
-    ],
+    placeholder: 'Ask any question...',
+    suggestedPrompts: [],
   },
   {
     id: 'phenomenon-connector',
     title: 'Real-World Phenomenon Connector',
     subtitle: 'Anchor theory in observable everyday events',
-    placeholder: 'e.g., Connect Bernoulli Principle to everyday local examples',
-    suggestedPrompts: [
-      'Connect Bernoulli Principle to cricket swing, showers, and urban wind tunnels',
-      'Link Quadratic Equations to projectile trajectories and bridge cables',
-    ],
+    placeholder: 'Ask any question...',
+    suggestedPrompts: [],
   },
   {
     id: 'analogy-generator',
     title: 'Analogy & Metaphor Generator',
     subtitle: 'Memorable mental models for abstract ideas',
-    placeholder: 'e.g., Give 3 vivid analogies for Voltage, Current, and Resistance',
-    suggestedPrompts: [
-      'Give 3 vivid analogies for Voltage, Current, and Resistance for middle schoolers',
-      'Explain how DNA transcription works using a bakery or architecture analogy',
-    ],
+    placeholder: 'Ask any question...',
+    suggestedPrompts: [],
   },
   {
     id: 'feynman-simplifier',
     title: 'Complex Concept Simplifier (Feynman Technique)',
     subtitle: 'Zero-jargon intuition builders',
-    placeholder: 'e.g., Simplify Quantum Superposition using plain language for 13-year-olds',
-    suggestedPrompts: [
-      'Explain Entropy without heavy math using everyday kitchen examples',
-      'Simplify Neural Network Backpropagation using a basketball free-throw analogy',
-    ],
+    placeholder: 'Ask any question...',
+    suggestedPrompts: [],
   },
   {
     id: 'misconception-buster',
     title: 'Student Misconception Buster',
     subtitle: 'Diagnose and repair common mental traps',
-    placeholder: 'e.g., Why do students think seasons happen because Earth is closer to the Sun?',
-    suggestedPrompts: [
-      'Top 4 student misconceptions about Gravity and Air Resistance with quick demos to bust them',
-      'Why students confuse Heat and Temperature and how to test it in 3 minutes',
-    ],
+    placeholder: 'Ask any question...',
+    suggestedPrompts: [],
   },
   {
     id: 'debate-prompts',
     title: 'Classroom Debate & Discussion Prompts',
     subtitle: 'High-agency Socratic dilemmas & SDG 4 ethics',
-    placeholder: 'e.g., Generate a structured 2-side classroom debate on Nuclear vs Solar grids',
-    suggestedPrompts: [
-      'Structured 20-minute debate prompt on AI tutors in public schools (SDG 4)',
-      'Ethical dilemma prompt on gene editing CRISPR for Grade 11 Biology',
-    ],
+    placeholder: 'Ask any question...',
+    suggestedPrompts: [],
   },
   {
     id: 'formative-assessments',
     title: 'Formative Quick-Check Assessments',
     subtitle: '3-minute hinge questions & exit tickets',
-    placeholder: 'e.g., Write 4 diagnostic hinge questions on Chemical Bonding',
-    suggestedPrompts: [
-      'Write 4 hinge questions on Linear Functions where wrong choices reveal specific errors',
-      'Create a 2-minute exit ticket for Plate Tectonics with rubric cues',
-    ],
+    placeholder: 'Ask any question...',
+    suggestedPrompts: [],
   },
   {
     id: 'differentiated-scaffolds',
     title: 'Differentiated Learning Scaffolds',
     subtitle: 'Tiered support for diverse & multilingual learners',
-    placeholder: 'e.g., Scaffold an Osmosis lab for emerging, on-track, and advanced learners',
-    suggestedPrompts: [
-      'Create 3-tier scaffolding (Visual, Guided, Extension) for Solving Simultaneous Equations',
-      'Adapt a Solar Thermal Cooker project for mixed-ability inclusive classrooms',
-    ],
+    placeholder: 'Ask any question...',
+    suggestedPrompts: [],
   },
 ];
 

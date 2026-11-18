@@ -44,7 +44,7 @@ export function QuizBuzzLive({ user, onNavigate }: QuizBuzzLiveProps) {
     user.role === 'student' ? 'student' : 'host'
   );
   const [room, setRoom] = useState<QuizRoomState | null>(null);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(() => soundEngine.muted);
 
   // Student join state
   const [playerId] = useState(() => `st-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
@@ -178,6 +178,7 @@ export function QuizBuzzLive({ user, onNavigate }: QuizBuzzLiveProps) {
       setRoom(data.room);
       if (data.isCorrect) {
         soundEngine.playCorrect();
+        setTimeout(() => soundEngine.playXpGain(), 160);
         setAnswerFeedback({ correct: true, message: 'Spot on! Speed bonus + streak XP awarded.' });
       } else {
         soundEngine.playWrong();

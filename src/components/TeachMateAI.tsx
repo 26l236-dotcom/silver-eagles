@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   Bot,
   Check,
@@ -21,6 +21,7 @@ import type {
   GroundingMode,
   GroundingSource,
 } from '../types';
+import { RichMathMarkdown } from './RichMathMarkdown';
 
 const HISTORY_STORAGE_KEY = 'smartfun360_teachmate_history';
 
@@ -30,80 +31,6 @@ const CHAT_MODEL_OPTIONS: Array<{ id: GeminiChatModelId; label: string; hint: st
   { id: 'gemini-4-argon', label: 'Gemini 4 Argon', hint: 'Complex STEM & Interactive' },
   { id: 'gemini-4-carbon', label: 'Gemini 4 Carbon', hint: 'Deep Reasoning & Proofs' },
 ];
-
-function renderInlineMarkdown(text: string) {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
-  return parts.map((part, idx) => {
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return (
-        <strong key={idx} className="font-semibold">
-          {part.slice(2, -2)}
-        </strong>
-      );
-    }
-    if (part.startsWith('`') && part.endsWith('`')) {
-      return (
-        <code
-          key={idx}
-          className="px-1.5 py-0.5 rounded text-xs font-mono"
-          style={{ backgroundColor: 'var(--bg-elevated)' }}
-        >
-          {part.slice(1, -1)}
-        </code>
-      );
-    }
-    return <Fragment key={idx}>{part}</Fragment>;
-  });
-}
-
-function MarkdownView({ content }: { content: string }) {
-  const lines = content.split('\n');
-  return (
-    <div className="space-y-2 text-sm leading-relaxed">
-      {lines.map((line, i) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div key={i} className="h-1" />;
-        if (trimmed.startsWith('### ')) {
-          return (
-            <h4 key={i} className="font-display font-bold text-base pt-1">
-              {renderInlineMarkdown(trimmed.slice(4))}
-            </h4>
-          );
-        }
-        if (trimmed.startsWith('## ') || trimmed.startsWith('# ')) {
-          return (
-            <h3 key={i} className="font-display font-bold text-lg pt-1">
-              {renderInlineMarkdown(trimmed.replace(/^#+\s*/, ''))}
-            </h3>
-          );
-        }
-        if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-          return (
-            <div key={i} className="flex items-start gap-2 pl-1">
-              <span
-                className="w-1.5 h-1.5 rounded-full mt-2 shrink-0"
-                style={{ backgroundColor: 'var(--accent-primary)' }}
-              />
-              <span>{renderInlineMarkdown(trimmed.slice(2))}</span>
-            </div>
-          );
-        }
-        if (/^\d+\.\s/.test(trimmed)) {
-          const match = trimmed.match(/^(\d+\.)\s(.*)$/);
-          return (
-            <div key={i} className="flex items-start gap-2 pl-1">
-              <span className="font-mono text-xs font-bold mt-0.5 shrink-0" style={{ color: 'var(--accent-primary)' }}>
-                {match?.[1]}
-              </span>
-              <span>{renderInlineMarkdown(match?.[2] || trimmed)}</span>
-            </div>
-          );
-        }
-        return <p key={i}>{renderInlineMarkdown(line)}</p>;
-      })}
-    </div>
-  );
-}
 
 export function TeachMateAI() {
   const [selectedToolId, setSelectedToolId] = useState(TEACHMATE_TOOLS[0].id);
@@ -387,7 +314,7 @@ export function TeachMateAI() {
 
         {/* Right: Multi-Turn, Multi-Model & Grounded Chat Workspace */}
         <section
-          className="lg:col-span-8 rounded-2xl flex flex-col h-[76vh] min-h-[560px]"
+          className="lg:col-span-8 min-w-0 rounded-2xl flex flex-col h-[76vh] min-h-[560px]"
           style={{
             backgroundColor: 'var(--bg-surface)',
             border: '1px solid var(--border-hairline)',
@@ -518,7 +445,7 @@ export function TeachMateAI() {
                   className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className="max-w-[85%] rounded-2xl px-4 py-3"
+                    className="min-w-0 max-w-[92%] sm:max-w-[85%] rounded-2xl px-4 py-3"
                     style={{
                       backgroundColor:
                         msg.role === 'user' ? 'var(--accent-primary)' : 'var(--bg-canvas)',
@@ -529,10 +456,10 @@ export function TeachMateAI() {
                     }}
                   >
                     {msg.role === 'user' ? (
-                      <p className="text-sm">{msg.text}</p>
+                      <p className="text-sm whitespace-pre-wrap break-words">{msg.text}</p>
                     ) : msg.text ? (
-                      <div className="space-y-3">
-                        <MarkdownView content={msg.text} />
+                      <div className="space-y-3 min-w-0">
+                        <RichMathMarkdown content={msg.text} />
 
                         {/* Grounding Sources (Google Search & Google Maps URLs) */}
                         {msg.sources && msg.sources.length > 0 && (

@@ -83,6 +83,54 @@ export interface QuizRoomState {
   squadScores: Record<SquadColor, number>;
 }
 
+export type TeacherAiModelChoice = 'auto' | 'flash-lite' | 'argon' | 'hydrogen';
+
+export type TeacherAiModelStatus =
+  | 'available'
+  | 'billing_required'
+  | 'unavailable'
+  | 'untested';
+
+export interface TeacherAiModelInfo {
+  id: Exclude<TeacherAiModelChoice, 'auto'>;
+  label: string;
+  modelId: string;
+  tagline: string;
+  description: string;
+  speedRating: number; // 1-5
+  capabilityRating: number; // 1-5
+  speedLabel: string;
+  capabilityLabel: string;
+  bestFor: string[];
+  configurableEnvVar: string;
+  requiresPaidTier?: boolean;
+  status: TeacherAiModelStatus;
+  statusMessage?: string;
+  latencyMs?: number;
+  lastCheckedAt?: number;
+}
+
+export interface TeacherAiExecutionMeta {
+  requestedChoice: TeacherAiModelChoice;
+  requestedLabel: string;
+  resolvedModelId: string;
+  actualModelId: string;
+  actualModelLabel: string;
+  fallbackUsed: boolean;
+  fallbackReason?: string;
+  autoReason?: string;
+  latencyMs: number;
+}
+
+export interface TeacherHistoryEntry {
+  id: string;
+  timestamp: number;
+  question: string;
+  style: string;
+  modelChoice: TeacherAiModelChoice;
+  plan: FunLessonPlan;
+}
+
 export interface FunLessonPlan {
   title: string;
   topic: string;
@@ -103,6 +151,7 @@ export interface FunLessonPlan {
   assessmentPlan: string;
   bonusIdeas: string[];
   sampleQuizQuestions: QuizQuestion[];
+  modelMeta?: TeacherAiExecutionMeta;
 }
 
 export interface TeachMateTool {

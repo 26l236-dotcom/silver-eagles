@@ -8,11 +8,15 @@ import {
   Loader2,
   Mic,
   MicOff,
+  Pause,
   PhoneOff,
+  Play,
   Radio,
+  Sparkles,
   Square,
   Upload,
   Video,
+  Volume2,
 } from 'lucide-react';
 
 type StudioTab = 'image' | 'video' | 'live' | 'transcribe';
@@ -122,22 +126,95 @@ export function MediaVoiceLab() {
 /* ============================================================================
    1. Create & Edit Images (gemini-nano-banana-2.1)
    ============================================================================ */
+interface ImageExample {
+  id: string;
+  title: string;
+  prompt: string;
+  aspectRatio: string;
+  imageSize: string;
+  url: string;
+  caption: string;
+}
+
+const IMAGE_EXAMPLES: ImageExample[] = [
+  {
+    id: 'chloroplast',
+    title: 'Chloroplast Cross-Section',
+    prompt:
+      'Clean modern educational science textbook cross-section illustration of a plant cell chloroplast showing thylakoids, stroma, light energy, and electron transport.',
+    aspectRatio: '16:9',
+    imageSize: '2K',
+    url: '/src/assets/images/stem_chloroplast_diagram_1795008823878.jpg',
+    caption: 'Sample Example · Plant Cell Chloroplast Cross-Section (16:9)',
+  },
+  {
+    id: 'electromagnet',
+    title: 'Solenoid & Magnetic Field',
+    prompt:
+      'Isometric 3D STEM physics laboratory diagram showing a copper wire solenoid coil around an iron core with glowing magnetic field lines and an LED circuit.',
+    aspectRatio: '16:9',
+    imageSize: '2K',
+    url: '/src/assets/images/stem_electromagnet_lab_1795008823642.jpg',
+    caption: 'Sample Example · Solenoid Electromagnet & Magnetic Field Lines (16:9)',
+  },
+];
+
+async function urlToSourceImage(
+  url: string
+): Promise<{ base64: string; mimeType: string; previewUrl: string }> {
+  const res = await fetch(url);
+  const blob = await res.blob();
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to load example image.'));
+    reader.readAsDataURL(blob);
+  });
+  const commaIdx = dataUrl.indexOf(',');
+  return {
+    base64: commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl,
+    mimeType: blob.type || 'image/jpeg',
+    previewUrl: dataUrl,
+  };
+}
+
 function ImageStudioPanel() {
-  const [prompt, setPrompt] = useState('');
-  const [aspectRatio, setAspectRatio] = useState('16:9');
-  const [imageSize, setImageSize] = useState('1K');
+  const [prompt, setPrompt] = useState(IMAGE_EXAMPLES[0].prompt);
+  const [aspectRatio, setAspectRatio] = useState(IMAGE_EXAMPLES[0].aspectRatio);
+  const [imageSize, setImageSize] = useState(IMAGE_EXAMPLES[0].imageSize);
   const [useSearch, setUseSearch] = useState(false);
   const [sourceImage, setSourceImage] = useState<{ base64: string; mimeType: string; previewUrl: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [outputUrl, setOutputUrl] = useState<string | null>(null);
-  const [caption, setCaption] = useState('');
+  const [outputUrl, setOutputUrl] = useState<string | null>(IMAGE_EXAMPLES[0].url);
+  const [caption, setCaption] = useState(IMAGE_EXAMPLES[0].caption);
+  const [activeExampleId, setActiveExampleId] = useState<string | null>(IMAGE_EXAMPLES[0].id);
 
   const handleUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const data = await fileToBase64(file);
     setSourceImage(data);
+  };
+
+  const handleLoadExample = (ex: ImageExample) => {
+    setPrompt(ex.prompt);
+    setAspectRatio(ex.aspectRatio);
+    setImageSize(ex.imageSize);
+    setOutputUrl(ex.url);
+    setCaption(ex.caption);
+    setActiveExampleId(ex.id);
+    setError('');
+  };
+
+  const handleUseOutputAsSource = async () => {
+    if (!outputUrl) return;
+    try {
+      const attached = await urlToSourceImage(outputUrl);
+      setSourceImage(attached);
+    } catch {
+      setError('Could not attach preview image for editing.');
+    }
   };
 
   const handleGenerate = async () => {
@@ -165,7 +242,8 @@ function ImageStudioPanel() {
         setError(data.error || 'Image generation failed.');
       } else {
         setOutputUrl(data.imageUrl);
-        setCaption(data.caption || '');
+        setCaption(data.caption || 'Generated with gemini-nano-banana-2.1');
+        setActiveExampleId(null);
       }
     } catch {
       setError('Network error calling image generation endpoint.');
@@ -183,8 +261,45 @@ function ImageStudioPanel() {
         <div>
           <h2 className="font-display text-xl font-bold">Image Studio · gemini-nano-banana-2.1</h2>
           <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Generate high-resolution STEM illustrations or upload an existing photo/diagram to edit via prompt.
+            Generate high-resolution STEM illustrations, edit uploaded diagrams, or preview ready classroom examples below.
           </p>
+        </div>
+
+        {/* Built-in Classroom Examples */}
+        <div className="space-y-2">
+          <span className="block text-xs font-semibold">Classroom Examples</span>
+          <div className="grid grid-cols-2 gap-2.5">
+            {IMAGE_EXAMPLES.map((ex) => {
+              const active = activeExampleId === ex.id;
+              return (
+                <button
+                  key={ex.id}
+                  type="button"
+                  onClick={() => handleLoadExample(ex)}
+                  className="p-2 rounded-xl text-left transition-all"
+                  style={{
+                    backgroundColor: active ? 'var(--bg-elevated)' : 'var(--bg-canvas)',
+                    border: active
+                      ? '1px solid var(--accent-primary)'
+                      : '1px solid var(--border-hairline)',
+                  }}
+                >
+                  <img
+                    src={ex.url}
+                    alt={ex.title}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-16 object-cover rounded-lg mb-1.5"
+                  />
+                  <p
+                    className="text-[11px] font-bold truncate"
+                    style={{ color: active ? 'var(--accent-primary)' : 'var(--text-primary)' }}
+                  >
+                    {ex.title}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div>
@@ -290,19 +405,33 @@ function ImageStudioPanel() {
               referrerPolicy="no-referrer"
               className="w-full max-h-[520px] object-contain rounded-xl bg-black/20"
             />
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 {caption || 'Generated with gemini-nano-banana-2.1'}
               </p>
-              <a
-                href={outputUrl}
-                download="smartfun360-visual.png"
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold shrink-0"
-                style={{ backgroundColor: 'var(--bg-elevated)' }}
-              >
-                <Download className="w-3.5 h-3.5" />
-                Download
-              </a>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => void handleUseOutputAsSource()}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold"
+                  style={{
+                    backgroundColor: 'var(--bg-canvas)',
+                    border: '1px solid var(--border-hairline)',
+                  }}
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Attach to Edit
+                </button>
+                <a
+                  href={outputUrl}
+                  download="smartfun360-visual.png"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold"
+                  style={{ backgroundColor: 'var(--bg-elevated)' }}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Download
+                </a>
+              </div>
             </div>
           </div>
         ) : (
@@ -310,7 +439,7 @@ function ImageStudioPanel() {
             <ImageIcon className="w-10 h-10 mx-auto opacity-60" style={{ color: 'var(--accent-primary)' }} />
             <p className="font-display text-lg font-bold">Visual Output Canvas</p>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Enter a prompt on the left to generate a diagram, poster, or edited photograph.
+              Select a classroom example or enter a prompt on the left to generate a diagram, poster, or edited photograph.
             </p>
           </div>
         )}
@@ -322,21 +451,131 @@ function ImageStudioPanel() {
 /* ============================================================================
    2. Text-to-Video & Image-to-Video (gemini-omni-1.2-flash Interactions API)
    ============================================================================ */
+interface VideoExample {
+  id: string;
+  title: string;
+  mode: 'text' | 'animate';
+  prompt: string;
+  aspectRatio: '16:9' | '9:16';
+  duration: string;
+  imageUrl?: string;
+  caption: string;
+}
+
+const VIDEO_EXAMPLES: VideoExample[] = [
+  {
+    id: 'solar-grid',
+    title: 'Solar Microgrid Time-Lapse',
+    mode: 'text',
+    prompt:
+      'Time-lapse of a solar & wind microgrid powering a sunlit school innovation lab, clean educational documentary style.',
+    aspectRatio: '16:9',
+    duration: '6s',
+    imageUrl: '/src/assets/images/stem_chloroplast_diagram_1795008823878.jpg',
+    caption: 'Sample Preview · Solar & Photosynthesis Energy Cycle Motion (16:9 · 6s)',
+  },
+  {
+    id: 'solenoid-orbit',
+    title: 'Animate Solenoid Diagram',
+    mode: 'animate',
+    prompt:
+      'Slowly orbit around the glowing copper solenoid as cyan magnetic field lines pulse outward and the LED illuminates.',
+    aspectRatio: '16:9',
+    duration: '6s',
+    imageUrl: '/src/assets/images/stem_electromagnet_lab_1795008823642.jpg',
+    caption: 'Sample Preview · Animated Magnetic Flux Orbit from Still Diagram (16:9 · 6s)',
+  },
+];
+
 function VideoStudioPanel() {
   const [mode, setMode] = useState<'text' | 'animate'>('text');
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(VIDEO_EXAMPLES[0].prompt);
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>('16:9');
   const [duration, setDuration] = useState('6s');
   const [imageInput, setImageInput] = useState<{ base64: string; mimeType: string; previewUrl: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [activeExample, setActiveExample] = useState<VideoExample | null>(VIDEO_EXAMPLES[0]);
+  const [previewPlaying, setPreviewPlaying] = useState(true);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    if (videoUrl || !activeExample || !previewPlaying) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const img = new Image();
+    img.src = activeExample.imageUrl || IMAGE_EXAMPLES[1].url;
+    let rafId = 0;
+    const start = performance.now();
+
+    const draw = (now: number) => {
+      const t = (now - start) / 1000;
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      if (img.complete && img.naturalWidth > 0) {
+        const scale = 1.04 + 0.05 * Math.sin(t * 0.9);
+        const panX = Math.sin(t * 0.6) * 14;
+        const panY = Math.cos(t * 0.5) * 8;
+        const drawW = w * scale;
+        const drawH = h * scale;
+        ctx.drawImage(img, (w - drawW) / 2 + panX, (h - drawH) / 2 + panY, drawW, drawH);
+      } else {
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      // Subtle animated energy/flux pulse overlay
+      const pulse = 0.25 + 0.15 * Math.sin(t * 2.4);
+      const grad = ctx.createRadialGradient(w * 0.5, h * 0.48, 20, w * 0.5, h * 0.48, w * 0.45);
+      grad.addColorStop(0, `rgba(56, 189, 248, ${pulse})`);
+      grad.addColorStop(1, 'rgba(15, 23, 42, 0.15)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Progress bar at bottom
+      const progress = (t % 6) / 6;
+      ctx.fillStyle = 'rgba(255,255,255,0.22)';
+      ctx.fillRect(16, h - 14, w - 32, 4);
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(16, h - 14, (w - 32) * progress, 4);
+
+      rafId = requestAnimationFrame(draw);
+    };
+
+    rafId = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(rafId);
+  }, [activeExample, previewPlaying, videoUrl]);
 
   const handlePhotoUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const data = await fileToBase64(file);
     setImageInput(data);
+  };
+
+  const handleLoadVideoExample = async (ex: VideoExample) => {
+    setError('');
+    setVideoUrl(null);
+    setMode(ex.mode);
+    setPrompt(ex.prompt);
+    setAspectRatio(ex.aspectRatio);
+    setDuration(ex.duration);
+    setActiveExample(ex);
+    setPreviewPlaying(true);
+    if (ex.mode === 'animate' && ex.imageUrl) {
+      try {
+        const attached = await urlToSourceImage(ex.imageUrl);
+        setImageInput(attached);
+      } catch {
+        // ignore fetch error
+      }
+    }
   };
 
   const handleGenerateVideo = async () => {
@@ -367,6 +606,7 @@ function VideoStudioPanel() {
         setError(data.error || 'Video generation failed.');
       } else {
         setVideoUrl(data.videoUrl);
+        setActiveExample(null);
       }
     } catch {
       setError('Network error calling Interactions video endpoint.');
@@ -386,6 +626,36 @@ function VideoStudioPanel() {
           <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
             Powered by the Gemini Interactions API for text-to-video and image-to-video animation.
           </p>
+        </div>
+
+        {/* Built-in Video Examples */}
+        <div className="space-y-2">
+          <span className="block text-xs font-semibold">Classroom Video Examples</span>
+          <div className="grid grid-cols-2 gap-2.5">
+            {VIDEO_EXAMPLES.map((ex) => {
+              const active = !videoUrl && activeExample?.id === ex.id;
+              return (
+                <button
+                  key={ex.id}
+                  type="button"
+                  onClick={() => void handleLoadVideoExample(ex)}
+                  className="p-2.5 rounded-xl text-left transition-all"
+                  style={{
+                    backgroundColor: active ? 'var(--bg-elevated)' : 'var(--bg-canvas)',
+                    border: active
+                      ? '1px solid var(--accent-primary)'
+                      : '1px solid var(--border-hairline)',
+                  }}
+                >
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--accent-primary)' }}>
+                    <Film className="w-3 h-3" />
+                    <span>{ex.mode === 'animate' ? 'Animate Photo' : 'Text to Video'}</span>
+                  </div>
+                  <p className="text-xs font-bold mt-1 truncate">{ex.title}</p>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl" style={{ backgroundColor: 'var(--bg-elevated)' }}>
@@ -427,6 +697,7 @@ function VideoStudioPanel() {
               <img
                 src={imageInput.previewUrl}
                 alt="Starting frame preview"
+                referrerPolicy="no-referrer"
                 className="mt-2 h-24 rounded-lg object-cover"
               />
             )}
@@ -522,6 +793,29 @@ function VideoStudioPanel() {
               </a>
             </div>
           </div>
+        ) : activeExample ? (
+          <div className="w-full space-y-4">
+            <canvas
+              ref={canvasRef}
+              width={720}
+              height={405}
+              className="w-full max-h-[440px] rounded-xl bg-black/40 object-contain"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                {activeExample.caption}
+              </p>
+              <button
+                type="button"
+                onClick={() => setPreviewPlaying((p) => !p)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold"
+                style={{ backgroundColor: 'var(--bg-elevated)' }}
+              >
+                {previewPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                {previewPlaying ? 'Pause Preview' : 'Play Preview'}
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="text-center max-w-sm space-y-2">
             <Film className="w-10 h-10 mx-auto opacity-60" style={{ color: 'var(--accent-primary)' }} />
@@ -539,11 +833,52 @@ function VideoStudioPanel() {
 /* ============================================================================
    3. Real-Time Voice Conversations (gemini-3.8-live via WebSocket /live)
    ============================================================================ */
+interface VoiceExample {
+  id: string;
+  title: string;
+  turns: Array<{ speaker: 'You' | 'Tutor'; text: string }>;
+}
+
+const VOICE_EXAMPLES: VoiceExample[] = [
+  {
+    id: 'faraday',
+    title: "Faraday's Induction Example",
+    turns: [
+      {
+        speaker: 'You',
+        text: 'Why does moving a magnet faster through a copper coil make the bulb glow brighter?',
+      },
+      {
+        speaker: 'Tutor',
+        text: "Great observation! By Faraday's Law, induced EMF equals the rate of change of magnetic flux. Moving the magnet faster changes the flux in less time, producing a higher voltage and brighter glow!",
+      },
+    ],
+  },
+  {
+    id: 'bandgap',
+    title: 'Semiconductor Band Gap Example',
+    turns: [
+      {
+        speaker: 'You',
+        text: 'How is diamond different from silicon and germanium in terms of energy band gap?',
+      },
+      {
+        speaker: 'Tutor',
+        text: 'Germanium has a small band gap of about 0.67 eV, silicon is 1.1 eV, while diamond has a very wide band gap near 5.5 eV—making diamond practically an insulator at room temperature!',
+      },
+    ],
+  },
+];
+
 function LiveVoicePanel() {
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [statusText, setStatusText] = useState('Disconnected · Click Start Voice Session to talk live');
-  const [transcripts, setTranscripts] = useState<Array<{ speaker: 'You' | 'Tutor'; text: string }>>([]);
+  const [statusText, setStatusText] = useState('Disconnected · Click Start Voice Session to talk live or preview an example below');
+  const [transcripts, setTranscripts] = useState<Array<{ speaker: 'You' | 'Tutor'; text: string }>>(
+    VOICE_EXAMPLES[0].turns
+  );
+  const [activeVoiceExId, setActiveVoiceExId] = useState<string | null>(VOICE_EXAMPLES[0].id);
+  const [speakingSample, setSpeakingSample] = useState(false);
   const [error, setError] = useState('');
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -577,12 +912,41 @@ function LiveVoicePanel() {
   useEffect(() => {
     return () => {
       stopSession();
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
     };
   }, []);
+
+  const handleLoadVoiceExample = (ex: VoiceExample) => {
+    setActiveVoiceExId(ex.id);
+    setTranscripts(ex.turns);
+    setError('');
+  };
+
+  const handlePlaySampleSpeech = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (speakingSample) {
+      window.speechSynthesis.cancel();
+      setSpeakingSample(false);
+      return;
+    }
+    const tutorLine = [...transcripts].reverse().find((t) => t.speaker === 'Tutor')?.text;
+    if (!tutorLine) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(tutorLine);
+    utter.rate = 1.02;
+    utter.onend = () => setSpeakingSample(false);
+    utter.onerror = () => setSpeakingSample(false);
+    setSpeakingSample(true);
+    window.speechSynthesis.speak(utter);
+  };
 
   const startSession = async () => {
     setError('');
     setConnecting(true);
+    setActiveVoiceExId(null);
+    setTranscripts([]);
     setStatusText('Connecting to gemini-3.8-live...');
 
     try {
@@ -721,6 +1085,50 @@ function LiveVoicePanel() {
         )}
       </div>
 
+      {/* Classroom Voice Dialogue Examples */}
+      {!connected && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+              <Sparkles className="w-3.5 h-3.5" style={{ color: 'var(--accent-primary)' }} />
+              Sample Examples:
+            </span>
+            {VOICE_EXAMPLES.map((ex) => {
+              const active = activeVoiceExId === ex.id;
+              return (
+                <button
+                  key={ex.id}
+                  type="button"
+                  onClick={() => handleLoadVoiceExample(ex)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                  style={{
+                    backgroundColor: active ? 'var(--bg-elevated)' : 'var(--bg-canvas)',
+                    border: active
+                      ? '1px solid var(--accent-primary)'
+                      : '1px solid var(--border-hairline)',
+                    color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                  }}
+                >
+                  {ex.title}
+                </button>
+              );
+            })}
+          </div>
+
+          {transcripts.length > 0 && (
+            <button
+              type="button"
+              onClick={handlePlaySampleSpeech}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+              style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+            >
+              <Volume2 className="w-3.5 h-3.5" style={{ color: 'var(--accent-primary)' }} />
+              {speakingSample ? 'Stop Sample Voice' : 'Listen to Tutor Example'}
+            </button>
+          )}
+        </div>
+      )}
+
       <p className="text-xs font-mono" style={{ color: connected ? 'var(--accent-primary)' : 'var(--text-muted)' }}>
         {statusText}
       </p>
@@ -760,11 +1168,34 @@ function LiveVoicePanel() {
 /* ============================================================================
    4. Microphone & Audio File Transcription (gemini-3.5-transcribe)
    ============================================================================ */
+interface TranscribeExample {
+  id: string;
+  title: string;
+  transcript: string;
+}
+
+const TRANSCRIBE_EXAMPLES: TranscribeExample[] = [
+  {
+    id: 'hall-effect',
+    title: 'Physics Lecture: Hall Effect',
+    transcript:
+      'Today we explored the Hall effect in semiconductors. When a current-carrying conductor is placed inside a perpendicular magnetic field, charge carriers experience a Lorentz force, generating a measurable transverse Hall voltage across the sample.',
+  },
+  {
+    id: 'optical-fiber',
+    title: 'Lab Summary: Optical Fibers',
+    transcript:
+      'In our optics experiment, laser light traveled through the silica glass core without escaping because the incidence angle exceeded the critical angle, demonstrating continuous total internal reflection.',
+  },
+];
+
 function TranscribePanel() {
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [transcript, setTranscript] = useState('');
+  const [transcript, setTranscript] = useState(TRANSCRIBE_EXAMPLES[0].transcript);
+  const [activeExampleId, setActiveExampleId] = useState<string | null>(TRANSCRIBE_EXAMPLES[0].id);
+  const [speakingExample, setSpeakingExample] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -772,9 +1203,40 @@ function TranscribePanel() {
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number>(0);
 
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  const handleLoadExample = (ex: TranscribeExample) => {
+    setActiveExampleId(ex.id);
+    setTranscript(ex.transcript);
+    setError('');
+  };
+
+  const handlePlayExampleAudio = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !transcript) return;
+    if (speakingExample) {
+      window.speechSynthesis.cancel();
+      setSpeakingExample(false);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(transcript);
+    utter.rate = 1.0;
+    utter.onend = () => setSpeakingExample(false);
+    utter.onerror = () => setSpeakingExample(false);
+    setSpeakingExample(true);
+    window.speechSynthesis.speak(utter);
+  };
+
   const sendForTranscription = async (blob: Blob, mimeType: string) => {
     setLoading(true);
     setError('');
+    setActiveExampleId(null);
     try {
       const reader = new FileReader();
       const base64 = await new Promise<string>((resolve, reject) => {
@@ -862,6 +1324,48 @@ function TranscribePanel() {
         </p>
       </div>
 
+      {/* Classroom Audio Examples */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+            <Sparkles className="w-3.5 h-3.5" style={{ color: 'var(--accent-primary)' }} />
+            Sample Examples:
+          </span>
+          {TRANSCRIBE_EXAMPLES.map((ex) => {
+            const active = activeExampleId === ex.id;
+            return (
+              <button
+                key={ex.id}
+                type="button"
+                onClick={() => handleLoadExample(ex)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                style={{
+                  backgroundColor: active ? 'var(--bg-elevated)' : 'var(--bg-canvas)',
+                  border: active
+                    ? '1px solid var(--accent-primary)'
+                    : '1px solid var(--border-hairline)',
+                  color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                }}
+              >
+                {ex.title}
+              </button>
+            );
+          })}
+        </div>
+
+        {transcript && (
+          <button
+            type="button"
+            onClick={handlePlayExampleAudio}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+            style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+          >
+            <Volume2 className="w-3.5 h-3.5" style={{ color: 'var(--accent-primary)' }} />
+            {speakingExample ? 'Stop Audio Preview' : 'Listen to Example'}
+          </button>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-center gap-3">
         {!recording ? (
           <button
@@ -914,7 +1418,7 @@ function TranscribePanel() {
       >
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
-            Transcript Output
+            {activeExampleId ? 'Sample Example Transcript' : 'Transcript Output'}
           </span>
           {transcript && (
             <button

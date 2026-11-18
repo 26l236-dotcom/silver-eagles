@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
+import { ChevronDown, ChevronUp, GripHorizontal, LocateFixed, RotateCcw } from 'lucide-react';
 
 type ModelPresetId = 'microgrid' | 'arduino' | 'atom';
 type CameraPresetId = 'hero' | 'top' | 'detail';
@@ -421,12 +421,129 @@ function buildBohrAtomGroup(explodable: ExplodablePart[]): { group: THREE.Group;
 }
 
 export function StemLab3D() {
+  const viewportRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const collapsedBtnRef = useRef<HTMLButtonElement>(null);
   const [modelPreset, setModelPreset] = useState<ModelPresetId>('microgrid');
   const [explodeAmount, setExplodeAmount] = useState(0);
   const [autoRotate, setAutoRotate] = useState(true);
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [contextLost, setContextLost] = useState(false);
+  const [panelOffset, setPanelOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+
+  const dragSessionRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null>(null);
+  const rafDragRef = useRef<number | null>(null);
+  const pendingOffsetRef = useRef<{ x: number; y: number } | null>(null);
+
+  const clampPanelOffset = useCallback(
+    (rawX: number, rawY: number) => {
+      const viewport = viewportRef.current;
+      const targetEl = dockCollapsed ? collapsedBtnRef.current : panelRef.current;
+      if (!viewport || !targetEl) return { x: rawX, y: rawY };
+
+      const margin = 12;
+      const vw = viewport.clientWidth;
+      const vh = viewport.clientHeight;
+      const pw = targetEl.offsetWidth;
+      const ph = targetEl.offsetHeight;
+
+      const maxX = Math.max(0, (vw - pw) / 2 - margin);
+      const maxY = Math.max(0, (vh - ph) / 2 - margin);
+
+      return {
+        x: Math.max(-maxX, Math.min(maxX, rawX)),
+        y: Math.max(-maxY, Math.min(maxY, rawY)),
+      };
+    },
+    [dockCollapsed]
+  );
+
+  useEffect(() => {
+    const reClamp = () => {
+      setPanelOffset((prev) => clampPanelOffset(prev.x, prev.y));
+    };
+    reClamp();
+    window.addEventListener('resize', reClamp);
+    return () => window.removeEventListener('resize', reClamp);
+  }, [clampPanelOffset]);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const session = dragSessionRef.current;
+      if (!session || e.pointerId !== session.pointerId) return;
+      const dx = e.clientX - session.startClientX;
+      const dy = e.clientY - session.startClientY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        session.moved = true;
+      }
+      pendingOffsetRef.current = clampPanelOffset(session.originX + dx, session.originY + dy);
+      if (rafDragRef.current === null) {
+        rafDragRef.current = requestAnimationFrame(() => {
+          rafDragRef.current = null;
+          if (pendingOffsetRef.current) {
+            setPanelOffset(pendingOffsetRef.current);
+          }
+        });
+      }
+    };
+
+    const stopDragging = (e: PointerEvent) => {
+      const session = dragSessionRef.current;
+      if (!session || e.pointerId !== session.pointerId) return;
+      if (rafDragRef.current !== null) {
+        cancelAnimationFrame(rafDragRef.current);
+        rafDragRef.current = null;
+      }
+      if (pendingOffsetRef.current) {
+        setPanelOffset(pendingOffsetRef.current);
+        pendingOffsetRef.current = null;
+      }
+      setIsDragging(false);
+      window.setTimeout(() => {
+        if (dragSessionRef.current === session) {
+          dragSessionRef.current = null;
+        }
+      }, 0);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove, { passive: true });
+    window.addEventListener('pointerup', stopDragging);
+    window.addEventListener('pointercancel', stopDragging);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopDragging);
+      window.removeEventListener('pointercancel', stopDragging);
+      if (rafDragRef.current !== null) {
+        cancelAnimationFrame(rafDragRef.current);
+        rafDragRef.current = null;
+      }
+    };
+  }, [isDragging, clampPanelOffset]);
+
+  const startPanelDrag = (e: ReactPointerEvent<HTMLElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    dragSessionRef.current = {
+      pointerId: e.pointerId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      originX: panelOffset.x,
+      originY: panelOffset.y,
+      moved: false,
+    };
+    setIsDragging(true);
+  };
 
   const stateRef = useRef({
     modelPreset: 'microgrid' as ModelPresetId,
@@ -712,8 +829,10 @@ export function StemLab3D() {
     },
   };
 
+  const isPanelMoved = Math.abs(panelOffset.x) > 1 || Math.abs(panelOffset.y) > 1;
+
   return (
-    <div className="relative w-full h-[calc(100vh-4rem)] overflow-hidden bg-[#091020]">
+    <div ref={viewportRef} className="relative w-full h-[calc(100vh-4rem)] overflow-hidden bg-[#091020]">
       {/* Isolated WebGL Mount Container */}
       <div ref={mountRef} className="w-full h-full" />
 
@@ -740,116 +859,184 @@ export function StemLab3D() {
         <p className="text-[11px] text-slate-300">{MODEL_LABELS[modelPreset].subtitle}</p>
       </div>
 
-      {/* Collapsible Bottom Control Dock (Solid rgba, <= 15% footprint) */}
-      <div
-        className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 w-[min(940px,94vw)] transition-transform duration-200"
-        style={{
-          transform: dockCollapsed ? 'translate(-50%, calc(100% - 36px))' : 'translate(-50%, 0)',
-        }}
-      >
-        <div className="flex justify-center">
+      {/* Centered, Freely Draggable Compact Glassmorphism Control Panel */}
+      <div className="absolute inset-0 z-20 flex items-center justify-center p-3 sm:p-4 pointer-events-none">
+        {dockCollapsed ? (
           <button
+            ref={collapsedBtnRef}
             type="button"
-            onClick={() => setDockCollapsed((c) => !c)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-t-xl text-[11px] font-semibold text-white border border-b-0 border-white/15"
-            style={{ backgroundColor: 'rgba(16, 27, 54, 0.94)' }}
+            aria-expanded={false}
+            onPointerDown={startPanelDrag}
+            onClick={() => {
+              if (dragSessionRef.current?.moved) return;
+              setDockCollapsed(false);
+            }}
+            className={`pointer-events-auto inline-flex items-center gap-2 min-h-[44px] sm:min-h-[38px] px-4 py-2 rounded-full text-xs font-semibold text-white border border-white/25 backdrop-blur-xl hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 whitespace-nowrap select-none touch-none ${
+              isDragging ? 'cursor-grabbing' : 'cursor-grab'
+            }`}
+            style={{
+              backgroundColor: 'rgba(11, 18, 36, 0.42)',
+              boxShadow: '0 10px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
+              transform: `translate3d(${panelOffset.x}px, ${panelOffset.y}px, 0)`,
+              transition: isDragging
+                ? 'none'
+                : 'transform 260ms cubic-bezier(0.16, 1, 0.3, 1), background-color 180ms ease',
+            }}
           >
-            {dockCollapsed ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            {dockCollapsed ? 'Show Controls' : 'Hide Controls'}
+            <GripHorizontal className="w-3.5 h-3.5 text-slate-300/80" />
+            <ChevronUp className="w-4 h-4 text-sky-300" />
+            <span>Show Controls</span>
           </button>
-        </div>
+        ) : (
+          <div
+            ref={panelRef}
+            role="region"
+            aria-label="3D model controls"
+            className="pointer-events-auto w-full max-w-[390px] sm:max-w-[430px] rounded-2xl p-3.5 sm:p-4 text-white border border-white/20 backdrop-blur-xl space-y-2.5"
+            style={{
+              backgroundColor: 'rgba(11, 18, 36, 0.38)',
+              boxShadow: isDragging
+                ? '0 22px 56px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.24)'
+                : '0 16px 48px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
+              transform: `translate3d(${panelOffset.x}px, ${panelOffset.y}px, 0)`,
+              transition: isDragging
+                ? 'none'
+                : 'transform 260ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms ease',
+              willChange: isDragging ? 'transform' : 'auto',
+            }}
+          >
+            {/* Draggable Panel Header */}
+            <div
+              onPointerDown={startPanelDrag}
+              className={`flex items-center justify-between gap-2 pb-1 select-none touch-none ${
+                isDragging ? 'cursor-grabbing' : 'cursor-grab'
+              }`}
+              title="Click and hold to drag panel"
+            >
+              <div className="flex items-center gap-1.5 min-w-0">
+                <GripHorizontal className="w-4 h-4 text-sky-300/85 shrink-0" />
+                <span className="text-xs font-semibold tracking-wide text-slate-100 whitespace-nowrap truncate">
+                  Model Controls
+                </span>
+              </div>
 
-        <div
-          className="rounded-2xl p-3.5 border border-white/15 text-white flex flex-wrap items-center justify-between gap-3 shadow-2xl"
-          style={{ backgroundColor: 'rgba(16, 27, 54, 0.94)' }}
-        >
-          {/* Model Switcher */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-black/30">
-            {(
-              [
-                { id: 'microgrid', label: 'Microgrid' },
-                { id: 'arduino', label: 'Arduino Rig' },
-                { id: 'atom', label: 'Carbon Atom' },
-              ] as const
-            ).map((item) => (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => setPanelOffset({ x: 0, y: 0 })}
+                  className={`inline-flex items-center justify-center min-h-[36px] min-w-[36px] sm:min-h-[28px] sm:min-w-[28px] px-2 py-1 rounded-lg text-[11px] font-semibold border border-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
+                    isPanelMoved
+                      ? 'bg-sky-500/20 text-sky-200 hover:bg-sky-500/30'
+                      : 'bg-white/10 text-slate-300/75 hover:bg-white/20 hover:text-white'
+                  }`}
+                  title="Reset panel position"
+                  aria-label="Reset panel position"
+                >
+                  <LocateFixed className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-expanded={true}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => setDockCollapsed(true)}
+                  className="inline-flex items-center gap-1 min-h-[36px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-200 bg-white/10 hover:bg-white/20 border border-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 whitespace-nowrap shrink-0"
+                >
+                  <ChevronDown className="w-3.5 h-3.5" />
+                  <span>Hide</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Model Switcher */}
+            <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-white/10 border border-white/10">
+              {(
+                [
+                  { id: 'microgrid', label: 'Microgrid' },
+                  { id: 'arduino', label: 'Arduino Rig' },
+                  { id: 'atom', label: 'Carbon Atom' },
+                ] as const
+              ).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setModelPreset(item.id)}
+                  className="min-h-[44px] sm:min-h-[36px] px-2 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                  style={{
+                    backgroundColor: modelPreset === item.id ? 'rgba(57, 123, 255, 0.88)' : 'transparent',
+                    color: modelPreset === item.id ? '#ffffff' : '#e2e8f0',
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Exploded View Slider */}
+            <label className="flex items-center gap-3 min-h-[44px] sm:min-h-[38px] px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-semibold">
+              <span className="whitespace-nowrap text-slate-200">Explode</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={explodeAmount}
+                onChange={(e) => setExplodeAmount(Number(e.target.value))}
+                className="flex-1 min-w-0 accent-sky-400 cursor-pointer"
+              />
+              <span className="font-mono text-[11px] tabular-nums w-9 text-right text-sky-300">
+                {Math.round(explodeAmount * 100)}%
+              </span>
+            </label>
+
+            {/* Camera & Orbit Controls */}
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
               <button
-                key={item.id}
                 type="button"
-                onClick={() => setModelPreset(item.id)}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors"
+                onClick={() => setCameraPreset('hero')}
+                className="flex-1 min-h-[44px] sm:min-h-[36px] px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold bg-white/10 hover:bg-white/20 border border-white/10 transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              >
+                Hero
+              </button>
+              <button
+                type="button"
+                onClick={() => setCameraPreset('top')}
+                className="flex-1 min-h-[44px] sm:min-h-[36px] px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold bg-white/10 hover:bg-white/20 border border-white/10 transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              >
+                Top
+              </button>
+              <button
+                type="button"
+                onClick={() => setCameraPreset('detail')}
+                className="flex-1 min-h-[44px] sm:min-h-[36px] px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold bg-white/10 hover:bg-white/20 border border-white/10 transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => setAutoRotate((a) => !a)}
+                className="flex-1 min-h-[44px] sm:min-h-[36px] px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold border border-white/10 transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                 style={{
-                  backgroundColor: modelPreset === item.id ? '#397BFF' : 'transparent',
-                  color: modelPreset === item.id ? '#ffffff' : '#cbd5e1',
+                  backgroundColor: autoRotate ? 'rgba(57, 123, 255, 0.88)' : 'rgba(255, 255, 255, 0.1)',
                 }}
               >
-                {item.label}
+                {autoRotate ? 'Spin On' : 'Spin Off'}
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setExplodeAmount(0);
+                  setCameraPreset('hero');
+                }}
+                className="min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] inline-flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                title="Reset view"
+                aria-label="Reset view"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
-
-          {/* Exploded View Slider */}
-          <label className="flex items-center gap-2.5 text-xs font-semibold">
-            <span className="whitespace-nowrap text-slate-300">Explode</span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={explodeAmount}
-              onChange={(e) => setExplodeAmount(Number(e.target.value))}
-              className="w-24 sm:w-32 accent-sky-400"
-            />
-            <span className="font-mono text-[11px] tabular-nums w-9 text-right">
-              {Math.round(explodeAmount * 100)}%
-            </span>
-          </label>
-
-          {/* Camera & Orbit Controls */}
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setCameraPreset('hero')}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/15 whitespace-nowrap"
-            >
-              Hero
-            </button>
-            <button
-              type="button"
-              onClick={() => setCameraPreset('top')}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/15 whitespace-nowrap"
-            >
-              Top
-            </button>
-            <button
-              type="button"
-              onClick={() => setCameraPreset('detail')}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/15 whitespace-nowrap"
-            >
-              Close
-            </button>
-            <button
-              type="button"
-              onClick={() => setAutoRotate((a) => !a)}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
-              style={{
-                backgroundColor: autoRotate ? '#397BFF' : 'rgba(255,255,255,0.1)',
-              }}
-            >
-              {autoRotate ? 'Spin On' : 'Spin Off'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setExplodeAmount(0);
-                setCameraPreset('hero');
-              }}
-              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/15"
-              title="Reset view"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

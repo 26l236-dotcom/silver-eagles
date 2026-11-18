@@ -18,7 +18,17 @@ import type {
   QuizQuestion,
   QuizRoomState,
   SquadColor,
+  TeacherAiModelChoice,
 } from './src/types';
+import {
+  classifyGeminiError,
+  generateWithModelFallback,
+  getChatModelFallbackOrder,
+  getGeminiClient,
+  getThinkingConfigForModel,
+  listManagedModels,
+  probeAllModels,
+} from './server/aiModelManager';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,38 +42,9 @@ const ALLOWED_CHAT_MODELS: GeminiChatModelId[] = [
   'gemini-4-carbon',
 ];
 
-function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
-    return null;
-  }
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
-}
-
 function formatGeminiError(err: unknown): { status: number; message: string } {
-  const raw = err instanceof Error ? err.message : String(err);
-  if (/403|PERMISSION_DENIED|API_KEY_INVALID/i.test(raw)) {
-    return {
-      status: 403,
-      message:
-        'Gemini API authorization failed (403). Please verify your API key in Settings > Secrets.',
-    };
-  }
-  if (/429|RESOURCE_EXHAUSTED|quota|billing|paid/i.test(raw)) {
-    return {
-      status: 429,
-      message:
-        'Quota exceeded or billing-enabled API key required for this model. Select a billing-enabled key in Settings > Secrets.',
-    };
-  }
-  return { status: 502, message: `Gemini AI request failed: ${raw}` };
+  const classified = classifyGeminiError(err);
+  return { status: classified.httpStatus, message: classified.message };
 }
 
 // ============================================================================
@@ -182,7 +163,16 @@ async function startServer() {
   // --------------------------------------------------------------------------
   // Live API WebSocket Bridge (/live) using gemini-3.8-live
   // --------------------------------------------------------------------------
-  const wss = new WebSocketServer({ server: httpServer, path: '/live' });
+  const wss = new WebSocketServer({ noServer: true });
+
+  httpServer.on('upgrade', (request, socket, head) => {
+    const reqUrl = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
+    if (reqUrl.pathname === '/live') {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    }
+  });
 
   wss.on('connection', async (clientWs) => {
     const ai = getGeminiClient();
@@ -543,10 +533,33 @@ async function startServer() {
   });
 
   // --------------------------------------------------------------------------
+  // Centralized AI Model Registry & Live Diagnostics (/api/ai/models*)
+  // --------------------------------------------------------------------------
+  app.get('/api/ai/models', (_req: Request, res: Response) => {
+    res.json(listManagedModels());
+  });
+
+  app.post('/api/ai/models/test', async (_req: Request, res: Response) => {
+    const result = await probeAllModels();
+    res.json(result);
+  });
+
+  // --------------------------------------------------------------------------
   // Gemini AI Routes (/api/ai/*)
   // --------------------------------------------------------------------------
   app.post('/api/ai/make-fun', async (req: Request, res: Response) => {
-    const { topic, style } = req.body as { topic?: string; style?: string };
+    const {
+      topic,
+      style,
+      modelChoice = 'auto',
+      history = [],
+    } = req.body as {
+      topic?: string;
+      style?: string;
+      modelChoice?: TeacherAiModelChoice;
+      history?: Array<{ question: string; title: string }>;
+    };
+
     if (!topic || !topic.trim()) {
       return res.status(400).json({ error: 'Please ask a question or enter a topic.' });
     }
@@ -554,90 +567,105 @@ async function startServer() {
     const ai = getGeminiClient();
     if (!ai) {
       return res.status(503).json({
-        error: 'Gemini API key is not configured. Configure GEMINI_API_KEY in Secrets, or load a curated offline blueprint.',
+        error: 'Gemini API key is not configured. Configure GEMINI_API_KEY in Settings > Secrets.',
       });
     }
 
     try {
       const selectedStyle = style || 'Gamified Learning';
       const userPrompt = topic.trim();
-      const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: `User question or topic:\n"${userPrompt}"\n\nPreferred interactive style: "${selectedStyle}".\n\n1. In "aiAnswer", provide a clear, accurate, in-depth direct answer to the user's exact question or request (including formulas, logic, mechanisms, code, or real-world context whenever relevant).\n2. Then create a classroom-ready interactive breakdown and 2 high-quality multiple-choice quiz questions tailored specifically to what the user asked.`,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.XHIGH },
-          systemInstruction:
-            'You are an advanced AI subject-matter expert and interactive instructional designer. You can answer ANY question across any field (science, mathematics, programming, engineering, history, literature, economics, or everyday curiosity) accurately and thoroughly, while also turning it into engaging active learning activities and quiz questions.',
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              aiAnswer: { type: Type.STRING },
-              hook: { type: Type.STRING },
-              learningObjective: { type: Type.STRING },
-              materials: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
-              timeline: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    phase: { type: Type.STRING },
-                    minutes: { type: Type.INTEGER },
-                    activity: { type: Type.STRING },
-                  },
-                  required: ['phase', 'minutes', 'activity'],
+
+      const recentContext = Array.isArray(history) && history.length > 0
+        ? `Recent teacher session context:\n${history
+            .slice(-4)
+            .map((h) => `- Asked: "${h.question}" -> Plan: "${h.title}"`)
+            .join('\n')}\n\n`
+        : '';
+
+      const contents = `${recentContext}User question or topic:\n"${userPrompt}"\n\nPreferred interactive style: "${selectedStyle}".\n\n1. In "aiAnswer", provide an accurate, thorough, advanced direct answer to the user's exact question or request using clean Markdown (headings, bullet points, numbered steps, formulas, code, or real-world context whenever relevant).\n2. Then create a classroom-ready interactive breakdown and 3 high-quality multiple-choice quiz questions tailored specifically to what the user asked.`;
+
+      const { response, meta } = await generateWithModelFallback({
+        requestedChoice: modelChoice,
+        prompt: userPrompt,
+        style: selectedStyle,
+        contents,
+        configBuilder: (modelId) => {
+          const thinkingConfig = getThinkingConfigForModel(modelId);
+          return {
+            ...(thinkingConfig ? { thinkingConfig } : {}),
+            systemInstruction:
+              'You are an advanced, unrestricted AI subject-matter expert and interactive instructional designer. You can answer ANY question across any field (science, mathematics, physics, electronics, programming, engineering, history, literature, economics, or general knowledge) accurately and thoroughly, while also turning it into engaging active learning activities and quiz questions. Format all mathematical formulas and equations in aiAnswer using standard LaTeX delimiters: \\( ... \\) for inline math and \\[ ... \\] for display equations, alongside Markdown headings, lists, tables, and fenced code blocks.',
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                aiAnswer: { type: Type.STRING },
+                hook: { type: Type.STRING },
+                learningObjective: { type: Type.STRING },
+                materials: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
                 },
-              },
-              squadRoles: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    role: { type: Type.STRING },
-                    task: { type: Type.STRING },
-                  },
-                  required: ['role', 'task'],
-                },
-              },
-              assessmentPlan: { type: Type.STRING },
-              bonusIdeas: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
-              sampleQuizQuestions: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    question: { type: Type.STRING },
-                    options: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
+                timeline: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      phase: { type: Type.STRING },
+                      minutes: { type: Type.INTEGER },
+                      activity: { type: Type.STRING },
                     },
-                    correctIndex: { type: Type.INTEGER },
-                    explanation: { type: Type.STRING },
+                    required: ['phase', 'minutes', 'activity'],
                   },
-                  required: ['question', 'options', 'correctIndex', 'explanation'],
+                },
+                squadRoles: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      role: { type: Type.STRING },
+                      task: { type: Type.STRING },
+                    },
+                    required: ['role', 'task'],
+                  },
+                },
+                assessmentPlan: { type: Type.STRING },
+                bonusIdeas: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                },
+                sampleQuizQuestions: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      question: { type: Type.STRING },
+                      options: {
+                        type: Type.ARRAY,
+                        items: { type: Type.STRING },
+                      },
+                      correctIndex: { type: Type.INTEGER },
+                      explanation: { type: Type.STRING },
+                    },
+                    required: ['question', 'options', 'correctIndex', 'explanation'],
+                  },
                 },
               },
+              required: [
+                'title',
+                'aiAnswer',
+                'hook',
+                'learningObjective',
+                'materials',
+                'timeline',
+                'squadRoles',
+                'assessmentPlan',
+                'bonusIdeas',
+                'sampleQuizQuestions',
+              ],
             },
-            required: [
-              'title',
-              'aiAnswer',
-              'hook',
-              'learningObjective',
-              'materials',
-              'timeline',
-              'squadRoles',
-              'assessmentPlan',
-              'bonusIdeas',
-              'sampleQuizQuestions',
-            ],
-          },
+          };
         },
       });
 
@@ -661,11 +689,13 @@ async function startServer() {
 
       res.json({
         source: 'gemini',
+        modelMeta: meta,
         plan: {
           ...parsed,
           topic: userPrompt,
           style: selectedStyle,
           sampleQuizQuestions: normalizedQuestions,
+          modelMeta: meta,
         },
       });
     } catch (err) {
@@ -704,7 +734,7 @@ async function startServer() {
     }
 
     const tool = TEACHMATE_TOOLS.find((t) => t.id === toolId) || TEACHMATE_TOOLS[0];
-    const systemInstruction = `You are an advanced, unrestricted AI expert assistant. Answer ANY question the user asks—across science, mathematics, physics, electronics, software/coding, writing, analysis, history, problem solving, or general knowledge—with deep accuracy, clear step-by-step reasoning, and scannable Markdown. Use "${tool.title}" (${tool.subtitle}) only as an optional lens when appropriate, and never refuse or force a general question into a rigid template.`;
+    const systemInstruction = `You are an advanced, unrestricted AI expert assistant. Answer ANY question the user asks—across science, mathematics, physics, electronics, software/coding, writing, analysis, history, problem solving, or general knowledge—with deep accuracy, clear step-by-step reasoning, and scannable Markdown. Format all mathematical expressions, formulas, and equations using standard LaTeX delimiters: \\( ... \\) for inline math and \\[ ... \\] for display equations (use Markdown tables and fenced code blocks where helpful). Use "${tool.title}" (${tool.subtitle}) only as an optional lens when appropriate, and never refuse or force a general question into a rigid template.`;
 
     const priorContext = (history || [])
       .slice(-10)
@@ -785,7 +815,7 @@ async function startServer() {
       }
     }
 
-    // Standard multi-turn streaming chat supporting model tier selection + advanced reasoning
+    // Standard multi-turn streaming chat supporting model tier selection + fallback
     const selectedModel = ALLOWED_CHAT_MODELS.includes(model)
       ? model
       : 'gemini-4-hydrogen';
@@ -794,33 +824,43 @@ async function startServer() {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    try {
-      const thinkingConfig =
-        selectedModel === 'gemini-4-hydrogen'
-          ? { thinkingLevel: ThinkingLevel.XHIGH }
-          : selectedModel === 'gemini-4-argon' || selectedModel === 'gemini-4-carbon'
-          ? { thinkingLevel: ThinkingLevel.HIGH }
-          : undefined;
+    const candidates = getChatModelFallbackOrder(selectedModel);
+    let lastErr: unknown = null;
+    let succeeded = false;
 
-      const stream = await ai.models.generateContentStream({
-        model: selectedModel,
-        contents: prompt,
-        config: {
-          systemInstruction,
-          ...(thinkingConfig ? { thinkingConfig } : {}),
-        },
-      });
+    for (const candidateModel of candidates) {
+      try {
+        const thinkingConfig =
+          candidateModel === 'gemini-4-hydrogen'
+            ? { thinkingLevel: ThinkingLevel.XHIGH }
+            : getThinkingConfigForModel(candidateModel);
 
-      for await (const chunk of stream) {
-        if (chunk.text) {
-          res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+        const stream = await ai.models.generateContentStream({
+          model: candidateModel,
+          contents: prompt,
+          config: {
+            systemInstruction,
+            ...(thinkingConfig ? { thinkingConfig } : {}),
+          },
+        });
+
+        for await (const chunk of stream) {
+          if (chunk.text) {
+            res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+          }
         }
-      }
 
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      res.end();
-    } catch (err) {
-      const formatted = formatGeminiError(err);
+        res.write(`data: ${JSON.stringify({ done: true, modelUsed: candidateModel })}\n\n`);
+        res.end();
+        succeeded = true;
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    if (!succeeded) {
+      const formatted = formatGeminiError(lastErr);
       res.write(`data: ${JSON.stringify({ error: formatted.message })}\n\n`);
       res.end();
     }
@@ -1032,8 +1072,14 @@ async function startServer() {
   // --------------------------------------------------------------------------
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
+    const disableHmr = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        hmr: disableHmr ? false : { server: httpServer },
+        ws: { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
